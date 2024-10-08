@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Koordinat PDF dengan Kotak yang Dapat Dipindahkan</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js"></script>
+        <style>
+            #pdfCanvas {
+                border: 1px solid #000;
+                cursor: crosshair;
+            }
+            #coordinates {
+                margin-top: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <input type="file" id="upload" />
+        <div id="coordinates">Koordinat terakhir: X: 0, Y: 0</div>
+        <canvas id="pdfCanvas"></canvas>
+
+        <script>
+            const fileInput = document.getElementById("upload");
+            const pdfCanvas = document.getElementById("pdfCanvas");
+            const context = pdfCanvas.getContext("2d");
+            const coordinatesDiv = document.getElementById("coordinates");
+            const boxSize = 50; // Ukuran sisi kotak persegi
+            const boxes = []; // Array untuk menyimpan semua kotak yang digambar
+            let draggingBoxIndex = null; // Indeks kotak yang sedang dipindahkan
+            let offset = { x: 0, y: 0 }; // Offset saat memindahkan kotak
+
+            fileInput.addEventListener("change", async function (event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+
+                    reader.onload = async function () {
+                        const pdfData = new Uint8Array(this.result);
+
+                        // Muat PDF
+                        const pdf = await pdfjsLib.getDocument(pdfData).promise;
+
+                        // Ambil halaman pertama
+                        const page = await pdf.getPage(1);
+                        const viewport = page.getViewport({ scale: 1 });
+
+                        // Atur ukuran kanvas sesuai dengan halaman PDF
+                        pdfCanvas.width = viewport.width;
+                        pdfCanvas.height = viewport.height;
+
+                        // Render halaman PDF ke dalam kanvas
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport,
+                        };
+                        await page.render(renderContext).promise;
+                    };
+
+                    reader.readAsArrayBuffer(file);
+                }
+            });
+
+            // Tangkap klik pada kanvas untuk menetapkan koordinat
+            pdfCanvas.addEventListener("click", function (event) {
+                const rect = pdfCanvas.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+
+                // Cek apakah pengguna mengklik kotak yang sudah ada
+                const clickedBoxIndex = boxes.findIndex((box) =>
+                    isPointInBox(x, y, box),
+                );
+                if (clickedBoxIndex === -1) {
+                    // Simpan kotak baru jika tidak mengklik kotak yang ada
+                    const box = {
+                        x: x - boxSize / 2,
+                        y: y - boxSize / 2,
+                        size: boxSize,
+                    };
+                    boxes.push(box);
+                } else {
+                    // Jika mengklik kotak yang ada, mulailah drag
+                    draggingBoxIndex = clickedBoxIndex;
+                    offset.x = x - boxes[clickedBoxIndex].x;
+                    offset.y = y - boxes[clickedBoxIndex].y;
+                }
+
+                // Tampilkan koordinat terakhir yang diklik
+                coordinatesDiv.textContent = `Koordinat terakhir: X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}`;
+
+                // Refresh tampilan dan gambar semua kotak yang telah disimpan
+                refreshCanvas();
+                drawAllBoxes();
+            });
+
+            // Tangkap pergerakan mouse untuk memindahkan kotak
+            pdfCanvas.addEventListener("mousemove", function (event) {
+                if (draggingBoxIndex !== null) {
+                    const rect = pdfCanvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+
+                    // Perbarui posisi kotak yang sedang dipindahkan
+                    const box = boxes[draggingBoxIndex];
+                    box.x = x - offset.x;
+                    box.y = y - offset.y;
+
+                    // Refresh tampilan dan gambar semua kotak yang telah disimpan
+                    refreshCanvas();
+                    drawAllBoxes();
+                }
+            });
+
+            // Tangkap mouse up untuk menghentikan pemindahan kotak
+            pdfCanvas.addEventListener("mouseup", function () {
+                draggingBoxIndex = null; // Reset indeks kotak yang dipindahkan
+            });
+
+            // Fungsi untuk mengecek apakah titik ada dalam kotak
+            function isPointInBox(x, y, box) {
+                return (
+                    x >= box.x &&
+                    x <= box.x + box.size &&
+                    y >= box.y &&
+                    y <= box.y + box.size
+                );
+            }
+
+            // Fungsi untuk menggambar kotak persegi dengan garis putus-putus
+            function drawBox(x, y, color) {
+                context.save();
+                context.strokeStyle = color;
+                context.lineWidth = 2;
+                context.setLineDash([5, 3]);
+                context.strokeRect(x, y, boxSize, boxSize);
+                context.restore();
+            }
+
+            // Gambar ulang semua kotak yang telah disimpan
+            function drawAllBoxes() {
+                boxes.forEach((box) => {
+                    drawBox(box.x, box.y, "green");
+                });
+            }
+
+            // Fungsi untuk merefresh tampilan kanvas tanpa menghilangkan render PDF
+            function refreshCanvas() {
+                // Simpan data gambar dari kanvas
+                const imageData = context.getImageData(
+                    0,
+                    0,
+                    pdfCanvas.width,
+                    pdfCanvas.height,
+                );
+                // Hapus semua konten kanvas
+                context.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+                // Gambar ulang halaman PDF
+                context.putImageData(imageData, 0, 0);
+            }
+        </script>
+    </body>
+</html>
